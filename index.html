@@ -36,6 +36,8 @@
         </button>
       </header>
 
+      <div class="wz-note" id="sys-notice" style="display:none"></div>
+
       <div class="core-stage" id="core-stage"></div>
 
       <div class="sys-meta">
@@ -65,7 +67,7 @@
           </button>
           <button class="primary-btn" id="btn-wish">生成计划</button>
         </div>
-        <p class="wish-tip">模糊也没关系，系统会用几个小问题帮你把它变清楚。可以直接说，也可以打字。<br>还没想好也可以直接点「探索模式」。</p>
+        <p class="wish-tip">想同时改变几件事？一次全说出来——系统会自动帮你拆成几个目标。<br>还没想好也可以直接点「探索模式」。</p>
         <button class="ghost-btn wide" id="btn-explore">暂时没有目标 · 先探索记录</button>
       </div>
 
@@ -124,7 +126,7 @@
         </button>
       </div>
 
-      <p class="ver">我的系统 · 原型 V1 · 本地演示版（数据仅存于本机浏览器）</p>
+      <p class="ver">我的系统 · 原型 V1.2 · 演示版（数据保存在本机，匿名摘要可同步至云端供管理员查看）</p>
       <div class="spacer"></div>
     </section>
   </main>
@@ -182,6 +184,11 @@
 <div class="sheet hidden" id="sheet-notes">
   <div class="sheet-head"><h2>能力说明</h2><button class="x" data-close>×</button></div>
   <div class="sheet-body" id="notes-body"></div>
+</div>
+
+<div class="sheet hidden" id="sheet-split">
+  <div class="sheet-head"><h2>识别到多个愿望</h2><button class="x" data-close>×</button></div>
+  <div class="sheet-body" id="split-body"></div>
 </div>
 
 <div id="toast" class="toast"></div>
