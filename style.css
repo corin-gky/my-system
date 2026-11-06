@@ -103,9 +103,93 @@ body[data-theme="vogue"]{
   --tabbg:rgba(14,13,12,.86);--sheet1:#191612;--sheet2:#100e0b;
   --inputbg:rgba(16,14,10,.75);--knob:#e3d5b3;--toastbg:rgba(24,20,14,.96);--ob1:#1e180e;
 }
+/* ---------- 赛博朋克 · 暗夜霓虹 ---------- */
+body[data-theme="cyber"]{
+  --bg:#0a0714;--bg2:#100a1e;
+  --card:rgba(255,63,180,.06);--card2:rgba(0,229,208,.08);
+  --line:rgba(255,63,180,.22);--hair:rgba(0,229,208,.1);
+  --txt:#f4ecff;--txt2:#b89cc8;--txt3:#7a6a90;
+  --ice:#ff3fb4;--ice2:#ff7ad0;--deep:#c01480;
+  --violet:#00e5d0;--ok:#00e5a0;--warn:#ffc46b;--danger:#ff5c7a;
+  --acc-rgb:255,63,180;
+  --btn1:#e0148a;--btn2:#00e5d0;--btn-txt:#1a0020;
+  --glow1:rgba(255,63,180,.22);--glow2:rgba(0,229,208,.14);--glow3:rgba(120,60,220,.16);
+  --tabbg:rgba(14,8,24,.86);--sheet1:#1a1028;--sheet2:#100a1a;
+  --inputbg:rgba(18,10,28,.78);--knob:#e3c2f2;--toastbg:rgba(26,14,38,.96);--ob1:#22103a;
+}
+/* ---------- 日落余温 · 暖橘暮色 ---------- */
+body[data-theme="sunset"]{
+  --bg:#140b06;--bg2:#1c110a;
+  --card:rgba(255,154,92,.07);--card2:rgba(255,154,92,.12);
+  --line:rgba(255,160,100,.22);--hair:rgba(255,160,100,.1);
+  --txt:#fdf3ea;--txt2:#c8a68f;--txt3:#8a7060;
+  --ice:#ff9a5c;--ice2:#ffc08a;--deep:#c25a1e;
+  --violet:#ffd36b;--ok:#a8d86a;--warn:#ffcf5c;--danger:#ff6a6a;
+  --acc-rgb:255,154,92;
+  --btn1:#e07a2e;--btn2:#ffbe80;--btn-txt:#2e1200;
+  --glow1:rgba(224,122,46,.22);--glow2:rgba(255,211,107,.1);--glow3:rgba(180,80,40,.14);
+  --tabbg:rgba(22,13,8,.86);--sheet1:#22150c;--sheet2:#170e08;
+  --inputbg:rgba(22,13,8,.78);--knob:#f0cfb0;--toastbg:rgba(30,18,10,.96);--ob1:#2a180c;
+}
+/* ---------- 森系苔原 · 深绿静谧 ---------- */
+body[data-theme="forest"]{
+  --bg:#0a120c;--bg2:#0f1a12;
+  --card:rgba(122,196,143,.06);--card2:rgba(122,196,143,.11);
+  --line:rgba(122,196,143,.2);--hair:rgba(122,196,143,.1);
+  --txt:#eaf5ee;--txt2:#9ab8a4;--txt3:#6a8474;
+  --ice:#7ac48f;--ice2:#a8dcba;--deep:#3e8a5c;
+  --violet:#c8e06b;--ok:#8ed86a;--warn:#e0b25c;--danger:#e07a7a;
+  --acc-rgb:122,196,143;
+  --btn1:#3e8a5c;--btn2:#a8dcba;--btn-txt:#04170a;
+  --glow1:rgba(62,138,92,.22);--glow2:rgba(200,224,107,.08);--glow3:rgba(60,110,80,.14);
+  --tabbg:rgba(10,18,12,.86);--sheet1:#142016;--sheet2:#0c140e;
+  --inputbg:rgba(12,20,14,.78);--knob:#c2dcc8;--toastbg:rgba(16,26,18,.96);--ob1:#12241a;
+}
+/* ---------- 薄荷清风 · 浅色透气 ---------- */
+body[data-theme="mint"]{
+  --bg:#eef7f2;--bg2:#ffffff;
+  --card:rgba(62,207,160,.1);--card2:rgba(62,207,160,.16);
+  --line:rgba(62,180,140,.24);--hair:rgba(90,160,130,.14);
+  --txt:#28453a;--txt2:#5f8474;--txt3:#94b0a4;
+  --ice:#2cbb8f;--ice2:#1e9e77;--deep:#1e9e77;
+  --violet:#5ab6e8;--ok:#3ecfa0;--warn:#e0a23e;--danger:#e06a6a;
+  --acc-rgb:44,187,143;
+  --btn1:#2cbb8f;--btn2:#8adfc4;--btn-txt:#0a3828;
+  --glow1:rgba(44,187,143,.16);--glow2:rgba(90,182,232,.1);--glow3:rgba(120,200,160,.12);
+  --tabbg:rgba(240,248,244,.92);--sheet1:#f6fbf8;--sheet2:#eef7f2;
+  --inputbg:rgba(255,255,255,.82);--knob:#ffffff;--toastbg:rgba(248,252,250,.98);--ob1:#d8f0e4;
+}
+/* ---------- 樱花初雪 · 浅色粉紫 ---------- */
+body[data-theme="sakura"]{
+  --bg:#f7f3fa;--bg2:#ffffff;
+  --card:rgba(232,138,184,.09);--card2:rgba(232,138,184,.15);
+  --line:rgba(200,130,170,.24);--hair:rgba(170,120,150,.14);
+  --txt:#463349;--txt2:#846e8c;--txt3:#b0a0b8;
+  --ice:#e06aa8;--ice2:#c8558e;--deep:#c8558e;
+  --violet:#9a8ad0;--ok:#6ac8a0;--warn:#e0a23e;--danger:#e06a6a;
+  --acc-rgb:224,106,168;
+  --btn1:#e06aa8;--btn2:#f2b0d0;--btn-txt:#431028;
+  --glow1:rgba(224,106,168,.14);--glow2:rgba(154,138,208,.1);--glow3:rgba(200,140,180,.12);
+  --tabbg:rgba(250,246,252,.92);--sheet1:#fbf8fd;--sheet2:#f7f3fa;
+  --inputbg:rgba(255,255,255,.82);--knob:#ffffff;--toastbg:rgba(252,248,254,.98);--ob1:#f2e2ee;
+}
+/* ---------- 极简雪境 · 素净留白 ---------- */
+body[data-theme="snow"]{
+  --bg:#f5f6f8;--bg2:#ffffff;
+  --card:rgba(90,122,168,.08);--card2:rgba(90,122,168,.13);
+  --line:rgba(100,120,150,.22);--hair:rgba(100,120,150,.12);
+  --txt:#333c48;--txt2:#6a7688;--txt3:#a0aab8;
+  --ice:#5a7aa8;--ice2:#44608c;--deep:#44608c;
+  --violet:#8a9ab0;--ok:#5ab88a;--warn:#d0a050;--danger:#d06a6a;
+  --acc-rgb:90,122,168;
+  --btn1:#5a7aa8;--btn2:#a8bcd4;--btn-txt:#f2f6fa;
+  --glow1:rgba(90,122,168,.14);--glow2:rgba(138,154,176,.08);--glow3:rgba(100,130,170,.1);
+  --tabbg:rgba(247,248,250,.92);--sheet1:#fafbfc;--sheet2:#f5f6f8;
+  --inputbg:rgba(255,255,255,.85);--knob:#ffffff;--toastbg:rgba(250,251,252,.98);--ob1:#e2e8f0;
+}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{color-scheme:dark}
-html:has(body[data-theme="cute"]),html:has(body[data-theme="ink"]){color-scheme:light}
+html:has(body[data-theme="cute"]),html:has(body[data-theme="ink"]),html:has(body[data-theme="mint"]),html:has(body[data-theme="sakura"]),html:has(body[data-theme="snow"]){color-scheme:light}
 body{
   font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;
   background:var(--bg);
@@ -538,3 +622,9 @@ input[type=range]{flex:1;accent-color:var(--ice);height:4px}
     font-size:11px;color:var(--txt3);letter-spacing:1px;z-index:1}
   .tabbar{border-radius:20px 20px 0 0}
 }
+
+/* 愿望拆分面板 */
+.split-item{border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:10px;opacity:.55;transition:opacity .25s}
+.split-item.on{opacity:1}
+.split-row{display:flex;align-items:center;gap:10px}
+.split-row input[type=text]{flex:1;min-width:0}
