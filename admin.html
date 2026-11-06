@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>我的系统 · 管理后台</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#070b13;color:#dfe9f5;min-height:100vh;padding:24px 16px 60px}
+.wrap{max-width:760px;margin:0 auto}
+h1{font-size:22px;margin-bottom:4px}
+.sub{color:#8aa0b8;font-size:12px;margin-bottom:24px}
+.card{background:rgba(92,200,255,.06);border:1px solid rgba(92,200,255,.16);border-radius:14px;padding:16px;margin-bottom:16px}
+label{display:block;font-size:12px;color:#8aa0b8;margin:10px 0 6px}
+input[type=password],input[type=text],textarea{width:100%;background:rgba(10,20,32,.7);border:1px solid rgba(92,200,255,.2);border-radius:10px;color:#dfe9f5;padding:10px 12px;font-size:14px;font-family:inherit}
+textarea{min-height:220px;font-family:Consolas,monospace;font-size:12px;line-height:1.5}
+button{background:#3ba7e8;color:#04121f;border:none;border-radius:10px;padding:10px 18px;font-size:14px;font-weight:600;cursor:pointer;margin-top:12px}
+button.ghost{background:transparent;color:#8aa0b8;border:1px solid rgba(92,200,255,.25)}
+button:disabled{opacity:.4}
+.status{font-size:12px;color:#8aa0b8;margin-top:10px;white-space:pre-wrap}
+.ok{color:#57e0a6}.err{color:#ff7d9a}
+.ucard{border:1px solid rgba(92,200,255,.18);border-radius:12px;padding:12px 14px;margin-bottom:10px;font-size:13px;line-height:1.7}
+.ucard b{color:#5cc8ff}
+.kpi{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.kpi span{background:rgba(92,200,255,.08);border-radius:8px;padding:3px 10px;font-size:12px;color:#a8c8e0}
+.hidden{display:none}
+a{color:#5cc8ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>我的系统 · 管理后台</h1>
+  <p class="sub">登录凭证为 GitHub 细粒度 token（仅授权 my-system 仓库读写）。token 只保存在你本机浏览器的 localStorage，不会上传到任何第三方。</p>
+
+  <div class="card" id="gate">
+    <label>GitHub Token（细粒度 · Contents 读写 · 仅 my-system 仓库）</label>
+    <input type="password" id="tk" placeholder="github_pat_ 开头">
+    <button id="btn-login">进入后台</button>
+    <p class="status" id="login-status"></p>
+  </div>
+
+  <div id="panel" class="hidden">
+    <div class="card">
+      <b>系统公告 / 参数配置</b>
+      <p class="sub" style="margin:6px 0 0">编辑后点保存，前台用户下次打开页面即生效（即时拉取，不走缓存）。</p>
+      <textarea id="cfg" spellcheck="false"></textarea>
+      <button id="btn-cfg-save">保存配置</button>
+      <button class="ghost" id="btn-cfg-reload">重新读取</button>
+      <p class="status" id="cfg-status"></p>
+    </div>
+
+    <div class="card">
+      <b>用户数据 <span id="ucount" style="color:#8aa0b8;font-weight:400"></span></b>
+      <p class="sub" style="margin:6px 0 0">来自各用户设备的匿名摘要（uid 为匿名 ID；内容不含照片、不含任务执行记录正文）。点「刷新」重新拉取。</p>
+      <div id="users"></div>
+      <button class="ghost" id="btn-urefresh">刷新用户数据</button>
+      <p class="status" id="u-status"></p>
+    </div>
+  </div>
+</div>
+<script>
+var REPO = "corin-gky/my-system";
+var TK = null;
+function $(i){return document.getElementById(i)}
+function headers(){return {"Authorization":"token "+TK,"Accept":"application/vnd.github+json"}}
+function api(path,opt){return fetch("https://api.github.com/repos/"+REPO+"/"+path,Object.assign({headers:headers()},opt||{}))}
+function b64decode(b){try{return decodeURIComponent(escape(atob(b.replace(/\s/g,""))))}catch(e){return ""}}
+function b64encode(s){return btoa(unescape(encodeURIComponent(s)))}
+
+$("btn-login").onclick=function(){
+  TK=$("tk").value.trim();
+  if(!TK){$("login-status").textContent="请先粘贴 token";return}
+  $("login-status").textContent="验证中…";
+  api("contents/user-data").then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j}})})
+  .then(function(res){
+    if(res.ok){
+      localStorage.setItem("mysys.adminToken",TK);
+      $("gate").classList.add("hidden");
+      $("panel").classList.remove("hidden");
+      loadCfg(); loadUsers();
+    } else {
+      $("login-status").innerHTML='<span class="err">验证失败：'+((res.j&&res.j.message)||"token 无效或权限不足")+'</span>';
+    }
+  }).catch(function(e){$("login-status").innerHTML='<span class="err">网络错误（访问 GitHub 需要网络通畅；若在公司/校园网内可能被拦截）</span>'});
+};
+
+function loadCfg(){
+  api("contents/config.json").then(function(r){return r.json()}).then(function(j){
+    if(j&&j.content!==undefined){
+      $("cfg").value=b64decode(j.content);
+      $("cfg").setAttribute("data-sha",j.sha);
+      $("cfg-status").textContent="已读取当前配置（sha "+j.sha.slice(0,7)+"）";
+    }
+  }).catch(function(){$("cfg-status").innerHTML='<span class="err">读取失败</span>'});
+}
+$("btn-cfg-reload").onclick=loadCfg;
+$("btn-cfg-save").onclick=function(){
+  var txt=$("cfg").value;
+  try{JSON.parse(txt)}catch(e){$("cfg-status").innerHTML='<span class="err">JSON 格式有误，请检查后再保存</span>';return}
+  $("cfg-status").textContent="保存中…";
+  api("contents/config.json",{
+    method:"PUT",
+    body:JSON.stringify({message:"admin: update config",content:b64encode(txt),sha:$("cfg").getAttribute("data-sha"),branch:"main"})
+  }).then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j}})})
+  .then(function(res){
+    if(res.ok){$("cfg-status").innerHTML='<span class="ok">已保存并发布 ✓ 用户下次打开页面即生效</span>';$("cfg").setAttribute("data-sha",res.j.content.sha)}
+    else $("cfg-status").innerHTML='<span class="err">保存失败：'+((res.j&&res.j.message)||"")+'</span>';
+  });
+};
+
+function loadUsers(){
+  $("u-status").textContent="加载中…";
+  $("users").innerHTML="";
+  api("contents/user-data").then(function(r){return r.json()}).then(function(list){
+    if(!Array.isArray(list)){$("u-status").innerHTML='<span class="err">目录读取失败（user-data/ 可能还不存在，等有用户上报后自动创建）</span>';$("ucount").textContent="";return}
+    var files=list.filter(function(f){return f.name.endsWith(".json")});
+    $("ucount").textContent="· 共 "+files.length+" 位用户";
+    if(!files.length){$("u-status").textContent="还没有用户数据";return}
+    var done=0;
+    files.forEach(function(f){
+      fetch(f.url,{headers:headers()}).then(function(r){return r.json()}).then(function(j){
+        var d={};
+        try{d=JSON.parse(b64decode(j.content))}catch(e){}
+        done++;
+        var el=document.createElement("div");
+        el.className="ucard";
+        var wishHtml=(d.wishes&&d.wishes.length)?"<div style='margin-top:6px;color:#8aa0b8'>目标："+d.wishes.join("、")+"</div>":"";
+        el.innerHTML="<b>"+(d.name||"匿名用户")+"</b> <span style='color:#8aa0b8'>("+ (d.uid||f.name) +")</span> · 系统「"+(d.sysName||"-")+"」 LV."+(d.level||1)+
+          "<div class='kpi'>"+
+          "<span>积分 "+(d.points||0)+"</span><span>目标 "+(d.goals||0)+"</span><span>任务 "+(d.tasksDone||0)+"/"+(d.tasksTotal||0)+"</span><span>打卡 "+(d.records||0)+"</span>"+
+          "<span>"+(d.height||"?")+"cm/"+(d.weight||"?")+"kg</span><span>主题 "+(d.theme||"-")+"</span><span>形态 "+(d.form||"-")+"</span><span>性格 "+(d.persona||"-")+"</span>"+
+          "<span>活跃 "+(d.lastActive?new Date(d.lastActive).toLocaleString("zh-CN"):"-")+"</span></div>"+wishHtml;
+        $("users").appendChild(el);
+        if(done===files.length)$("u-status").textContent="";
+      });
+    });
+  }).catch(function(e){$("u-status").innerHTML='<span class="err">读取失败：'+e+'</span>'});
+}
+$("btn-urefresh").onclick=loadUsers;
+
+/* 已保存过 token 则自动填充 */
+var saved=localStorage.getItem("mysys.adminToken");
+if(saved){$("tk").value=saved}
+</script>
+</body>
+</html>
