@@ -1,0 +1,7 @@
+{
+  "exchange": { "points": 20, "growth": 20 },
+  "level": { "per": 100 },
+  "taskMultiplier": 1,
+  "notice": "",
+  "_说明": "本文件由管理员在 admin.html 后台编辑；前台启动时自动拉取。exchange=积分兑换比例，level.per=每级所需成长值，taskMultiplier=任务积分倍率，notice=系统页顶部公告（留空则不显示）。"
+}
