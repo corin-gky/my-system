@@ -44,7 +44,33 @@ function loadState() {
 }
 var S = loadState();
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { } }
-function sysLevel() { return 1 + Math.floor(S.sys.growth / 100); }
+
+/* ============ 远程配置（后台 config.json 可改，前台启动时拉取） ============ */
+var CFG = {
+  exchange: { points: 20, growth: 20 },   /* 兑换比例 */
+  level: { per: 100 },                    /* 每级所需成长值 */
+  notice: "",                             /* 公告（系统页顶部展示，可为空） */
+  taskMultiplier: 1                       /* 任务积分倍率（后台可调整发放） */
+};
+function levelPer() { return (CFG.level && CFG.level.per) || 100; }
+function loadConfig(cb) {
+  if (typeof fetch !== "function") return cb && cb();
+  try {
+    fetch("config.json?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (j) {
+          if (j.exchange && j.exchange.points) CFG.exchange = j.exchange;
+          if (j.level && j.level.per) CFG.level = j.level;
+          if (typeof j.notice === "string") CFG.notice = j.notice;
+          if (typeof j.taskMultiplier === "number" && j.taskMultiplier > 0) CFG.taskMultiplier = j.taskMultiplier;
+        }
+        if (cb) cb();
+      })
+      .catch(function () { if (cb) cb(); });
+  } catch (e) { if (cb) cb(); }
+}
+function sysLevel() { return 1 + Math.floor(S.sys.growth / levelPer()); }
 
 /* ============ 系统性格 ============ */
 var PERSONAS = [
@@ -191,12 +217,191 @@ var DEADLINE_OPTS = ["1 个月", "3 个月", "半年", "长期陪伴"];
 function dirOf(id) { return DIRS.find(function (d) { return d.id === id; }); }
 function guessDir(text) {
   text = text || "";
-  if (/瘦|减|体重|胖|身材|塑形/.test(text)) return "slim";
+  if (/瘦|减|体重|胖|身材|塑形|运动|健身/.test(text)) return "slim";
   if (/美|皮肤|护肤|白|痘|脸/.test(text)) return "beauty";
   if (/学|英语|日语|考|读|书|技能|语言|词/.test(text)) return "study";
-  if (/睡|早起|熬夜|作息|习惯|饮食|手机/.test(text)) return "life";
+  if (/睡|早起|熬夜|作息|习惯|饮食|手机|三餐|吃饭/.test(text)) return "life";
   if (/情绪|心态|内耗|焦虑|压力|暴食|心/.test(text)) return "mind";
-  return null;
+  return "custom";
+}
+
+/* ============ 愿望拆分（规则切分，非 AI 理解） ============ */
+/* 把一段话按标点/连接词切成若干愿望，并推断方向 */
+function splitWishes(text) {
+  text = (text || "").trim();
+  if (!text) return [];
+  var parts = text.split(/[,，。;；！!？?\n]+/)
+    .map(function (x) { return x.trim().replace(/^(而且|然后|还有|另外|并且|以及|同时|也想|还想|我想|我想要|我要|希望|我想再|再|又|想|要)+/, "").trim(); })
+    .filter(function (x) { return x.length >= 2; });
+  if (!parts.length) parts = [text];
+  /* 两个愿望可能挤在同一段里（如「变瘦和学好英语」），再按连接词切一次 */
+  var fine = [];
+  parts.forEach(function (p) {
+    var sub = p.split(/(?:，|,)?(?:和|跟|与|还有|以及|同时|还想|也想|顺便)(?=.{2,})/).map(function (x) { return x.trim(); }).filter(function (x) { return x.length >= 2; });
+    if (sub.length > 1) fine = fine.concat(sub); else fine.push(p);
+  });
+  return fine.slice(0, 5).map(function (p) {
+    return { text: p.slice(0, 30), dir: guessDir(p), on: true };
+  });
+}
+
+/* 批量创建目标（跳过向导，用默认澄清参数） */
+function createGoalsBatch(list) {
+  var created = 0;
+  list.forEach(function (item) {
+    if (!item.on) return;
+    var d = dirOf(item.dir);
+    if (!d) return;
+    var state = d.states.find(function (s) { return s.k === "unknown"; }) || d.states[0];
+    var plan = buildPlan({
+      dir: d.id, state: state ? state.k : null,
+      wish: item.text, invest: "unsure", deadline: null, photoName: ""
+    });
+    var gid = uid();
+    S.goals.push({
+      id: gid, title: plan.title, desc: plan.desc,
+      createdAt: now(), deadline: null, invest: "unsure", photoName: ""
+    });
+    plan.tasks.forEach(function (tt) {
+      S.tasks.push({
+        id: uid(), goalId: gid, title: tt.title, how: tt.how,
+        points: Math.round(tt.points * CFG.taskMultiplier),
+        minutes: tt.minutes, verify: tt.verify,
+        status: "todo", doneAt: null
+      });
+    });
+    created++;
+  });
+  if (created) { save(); renderAll(); switchPage("task"); }
+  return created;
+}
+
+/* 拆分确认面板 */
+var SP = null;
+function openSplitSheet(items, originText) {
+  SP = { items: items, raw: originText || "" };
+  renderSplitSheet();
+  openSheet("sheet-split");
+}
+function renderSplitSheet() {
+  var body = $("split-body");
+  if (!SP || !SP.items.length) return;
+  var html = '<div class="wz-note">你说了一段包含多个愿望的话，系统按规则把它们切开了（规则切分演示，非 AI 理解）。<br>确认哪些要建目标，也可点击修改文字：</div>';
+  SP.items.forEach(function (it, i) {
+    var d = dirOf(it.dir);
+    html += '<div class="field split-item' + (it.on ? " on" : "") + '">' +
+      '<div class="split-row">' +
+      '<button class="switch' + (it.on ? " on" : "") + '" data-sp-on="' + i + '"></button>' +
+      '<input type="text" data-sp-text="' + i + '" maxlength="30" value="' + esc(it.text) + '">' +
+      '</div>' +
+      '<div class="seg-row" style="margin-top:8px">';
+    ["slim", "beauty", "study", "life", "mind", "custom"].forEach(function (did) {
+      var dd = dirOf(did);
+      html += '<button class="seg' + (it.dir === did ? " on" : "") + '" data-sp-dir="' + i + ':' + did + '">' + dd.label.split(" ")[0].split(" /")[0] + '</button>';
+    });
+    html += '</div></div>';
+  });
+  html += '<button class="primary-btn" style="width:100%;margin-top:16px" id="sp-go">按选中的生成目标与任务</button>';
+  html += '<p class="field-tip" style="text-align:center;margin-top:8px">每个目标会用默认节奏（最小投入 · 不设期限）生成起步任务，之后可在任务页删除或重新规划</p>';
+  body.innerHTML = html;
+  body.querySelectorAll("[data-sp-on]").forEach(function (el) {
+    el.onclick = function () {
+      var i = +el.getAttribute("data-sp-on");
+      SP.items[i].on = !SP.items[i].on;
+      renderSplitSheet();
+    };
+  });
+  body.querySelectorAll("[data-sp-text]").forEach(function (el) {
+    el.oninput = function () { SP.items[+el.getAttribute("data-sp-text")].text = el.value.trim(); };
+  });
+  body.querySelectorAll("[data-sp-dir]").forEach(function (el) {
+    el.onclick = function () {
+      var p = el.getAttribute("data-sp-dir").split(":");
+      SP.items[+p[0]].dir = p[1];
+      renderSplitSheet();
+    };
+  });
+  $("sp-go").onclick = function () {
+    var n = createGoalsBatch(SP.items);
+    closeSheets();
+    toast(n ? "已创建 " + n + " 个目标 · 起步任务就绪" : "没有勾选任何愿望");
+  };
+}
+
+/* 愿望文本入口：多愿望 → 拆分面板；单愿望 → 向导 */
+function handleWishText(text) {
+  if (!text) { toast("先说出或写下你的愿望～"); return; }
+  var items = splitWishes(text);
+  if (items.length >= 2) {
+    $("wish-input").value = "";
+    openSplitSheet(items, text);
+  } else {
+    startWizard(text);
+  }
+}
+
+/* ============ 用户数据上报（匿名摘要 → GitHub 仓库，供管理员后台查看） ============
+   说明：仅上报匿名 ID + 概览统计（不传照片、不传任务明细文字）。
+   CLIENT_GH_TOKEN 为专用细粒度 token（仅限本仓库读写），未配置时上报自动关闭。 */
+var GH_REPO = "corin-gky/my-system";
+var CLIENT_GH_TOKEN = "__CLIENT_TOKEN__";   /* ← 后台启用后替换为细粒度 token */
+var UID_KEY = "mysystem.uid";
+function anonId() {
+  var v = localStorage.getItem(UID_KEY);
+  if (!v) {
+    v = "u" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+    localStorage.setItem(UID_KEY, v);
+  }
+  return v;
+}
+function userSummary() {
+  return {
+    uid: anonId(),
+    name: S.user.name || "",
+    sysName: S.sys.name || "",
+    form: S.sys.form, persona: S.sys.persona, theme: (S.ui && S.ui.theme) || "tech",
+    height: S.user.height, weight: S.user.weight,
+    avatar: S.user.avatar,
+    points: S.sys.points, growth: S.sys.growth, level: sysLevel(),
+    goals: S.goals.length,
+    tasksTotal: S.tasks.length,
+    tasksDone: S.tasks.filter(function (x) { return x.status === "done"; }).length,
+    records: S.records.length,
+    wishes: S.goals.map(function (g) { return g.title; }).slice(0, 10),
+    lastActive: now()
+  };
+}
+var _lastUpload = 0;
+function uploadUserData(force) {
+  if (CLIENT_GH_TOKEN === "__CLIENT_TOKEN__") return;      /* 未配置：上报关闭 */
+  if (typeof fetch !== "function") return;
+  var ts = now();
+  if (!force && ts - _lastUpload < 60000) return;          /* 节流：60 秒一次 */
+  _lastUpload = ts;
+  var uidv = anonId();
+  var path = "user-data/" + uidv + ".json";
+  var body = JSON.stringify(userSummary());
+  var headers = {
+    "Authorization": "token " + CLIENT_GH_TOKEN,
+    "Accept": "application/vnd.github+json",
+    "Content-Type": "application/json"
+  };
+  var base = "https://api.github.com/repos/" + GH_REPO + "/contents/" + path;
+  fetch(base, { headers: headers })
+    .then(function (r) { return r.ok ? r.json() : { sha: null }; })
+    .then(function (info) {
+      var payload = {
+        message: "sync user " + uidv,
+        content: btoa(unescape(encodeURIComponent(body))),
+        branch: "main"
+      };
+      if (info && info.sha) payload.sha = info.sha;
+      return fetch(base, {
+        method: "PUT", headers: headers,
+        body: JSON.stringify(payload)
+      });
+    })
+    .catch(function () { });
 }
 
 /* ============ Toast ============ */
@@ -291,8 +496,19 @@ function renderSystem() {
   $("sys-level").textContent = "LV." + lv;
   $("sys-line").textContent = "SYSTEM ONLINE · SYNC " + (S.onboarded ? "OK" : "…");
   $("sys-status").textContent = p.greet + (S.sys.adapt ? "" : "");
-  $("growth-fill").style.width = (S.sys.growth % 100) + "%";
-  $("growth-text").textContent = "成长值 " + (S.sys.growth % 100) + " / 100（累计 " + S.sys.growth + "）";
+  $("growth-fill").style.width = (S.sys.growth % levelPer()) / levelPer() * 100 + "%";
+  $("growth-text").textContent = "成长值 " + (S.sys.growth % levelPer()) + " / " + levelPer() + "（累计 " + S.sys.growth + "）";
+
+  /* 管理员公告（后台 config.json 可改） */
+  var noticeEl = $("sys-notice");
+  if (noticeEl) {
+    if (CFG.notice) {
+      noticeEl.textContent = "📢 " + CFG.notice;
+      noticeEl.style.display = "block";
+    } else {
+      noticeEl.style.display = "none";
+    }
+  }
 
   var todo = S.tasks.filter(function (x) { return x.status === "todo"; });
   var done = S.tasks.filter(function (x) { return x.status === "done"; });
@@ -408,10 +624,11 @@ function openTaskSheet(id) {
       var note = $("dt-note").value.trim();
       x.status = "done";
       x.doneAt = now();
-      S.sys.points += x.points;
-      S.records.push({ time: now(), taskId: x.id, taskTitle: x.title, note: note, photoName: sheetPhotoName, points: x.points });
+      S.sys.points += Math.round(x.points * CFG.taskMultiplier);
+      S.records.push({ time: now(), taskId: x.id, taskTitle: x.title, note: note, photoName: sheetPhotoName, points: Math.round(x.points * CFG.taskMultiplier) });
       save(); renderAll(); closeSheets();
-      toast("验证通过 · +" + x.points + " 积分<br><span style='font-size:11px;color:var(--txt3)'>（演示规则：点击即通过）</span>");
+      uploadUserData();
+      toast("验证通过 · +" + Math.round(x.points * CFG.taskMultiplier) + " 积分<br><span style='font-size:11px;color:var(--txt3)'>（演示规则：点击即通过）</span>");
     };
   }
   openSheet("sheet-task");
@@ -423,7 +640,7 @@ function verifyDoneText(v) {
 /* ============ 愿望澄清向导 ============ */
 var WZ = null;
 function startWizard(rawText, dirId) {
-  WZ = { step: 0, raw: rawText || "", dir: dirId || (rawText ? guessDir(rawText) : null), state: null, wish: "", custom: "", invest: null, deadline: null, photoName: "", goalTitle: "", tasks: [] };
+  WZ = { step: 0, raw: rawText || "", dir: dirId || (rawText ? guessDir(rawText) : null), state: null, wish: "", wishes: [], custom: "", invest: null, deadline: null, photoName: "", goalTitle: "", tasks: [] };
   renderWizard();
   openSheet("sheet-wizard");
 }
@@ -464,15 +681,17 @@ function renderWizard() {
 
   if (w.step === 2) {
     var d2 = dirOf(w.dir);
+    if (!w.wishes) w.wishes = w.wish ? [w.wish] : [];
     $("wizard-title").textContent = "愿望澄清 · 目标";
-    html += '<div class="field"><label>你希望达到的状态是？</label><div class="seg-row">';
+    html += '<div class="field"><label>你希望达到的状态是？（可多选）</label><div class="seg-row">';
     d2.wishes.forEach(function (wv) {
-      html += '<button class="seg' + (w.wish === wv ? " on" : "") + '" data-wish="' + esc(wv) + '">' + esc(wv) + '</button>';
+      html += '<button class="seg' + (w.wishes.indexOf(wv) >= 0 ? " on" : "") + '" data-wish="' + esc(wv) + '">' + esc(wv) + '</button>';
     });
     html += '</div></div>';
-    html += '<div class="field"><label>或者自己写（选了上面可不填）</label><input type="text" id="wz-wish-custom" placeholder="一句话描述你想达到的状态" maxlength="30" value="' + esc(w.wish && d2.wishes.indexOf(w.wish) < 0 ? w.wish : "") + '"></div>';
+    html += '<div class="field"><label>或者自己补充（回车添加）</label><input type="text" id="wz-wish-custom" placeholder="一句话描述你想达到的状态" maxlength="30"></div>';
+    if (w.wishes.length) html += '<div class="wz-note">已选 ' + w.wishes.length + ' 项：' + esc(w.wishes.join("、")) + '</div>';
     html += '<div class="wz-note">不用写得完美——之后任务做起来，系统会根据执行情况再调整（调整机制当前为演示）。</div>';
-    foot = '<div class="wz-actions"><button class="ghost-btn wz-back">上一步</button><button class="primary-btn" id="wz-next"' + (w.wish ? "" : " disabled") + '>下一步</button></div>';
+    foot = '<div class="wz-actions"><button class="ghost-btn wz-back">上一步</button><button class="primary-btn" id="wz-next"' + (w.wishes.length ? "" : " disabled") + '>下一步</button></div>';
   }
 
   if (w.step === 3) {
@@ -524,7 +743,14 @@ function renderWizard() {
     el.onclick = function () { WZ.state = el.getAttribute("data-state"); renderWizard(); };
   });
   body.querySelectorAll("[data-wish]").forEach(function (el) {
-    el.onclick = function () { WZ.wish = el.getAttribute("data-wish"); renderWizard(); };
+    el.onclick = function () {
+      var wv = el.getAttribute("data-wish");
+      if (!WZ.wishes) WZ.wishes = [];
+      var ix = WZ.wishes.indexOf(wv);
+      if (ix >= 0) WZ.wishes.splice(ix, 1); else WZ.wishes.push(wv);
+      WZ.wish = WZ.wishes[0] || "";
+      renderWizard();
+    };
   });
   body.querySelectorAll("[data-invest]").forEach(function (el) {
     el.onclick = function () { WZ.invest = el.getAttribute("data-invest"); renderWizard(); };
@@ -544,7 +770,14 @@ function renderWizard() {
   }
   var wishCustom = body.querySelector("#wz-wish-custom");
   if (wishCustom) {
-    wishCustom.oninput = function () { WZ.wish = wishCustom.value.trim(); };
+    wishCustom.onkeydown = function (e) {
+      if (e.key === "Enter" && wishCustom.value.trim()) {
+        if (!WZ.wishes) WZ.wishes = [];
+        WZ.wishes.push(wishCustom.value.trim().slice(0, 30));
+        WZ.wish = WZ.wishes[0];
+        renderWizard();
+      }
+    };
   }
   var photoInput = body.querySelector("#wz-photo");
   if (photoInput) {
@@ -595,11 +828,12 @@ function buildPlan(w) {
   var invest = INVEST_OPTS.find(function (i) { return i.k === w.invest; }) || INVEST_OPTS[3];
   var count = invest.count;
   var tasks = d.tasks.slice(0, count).map(function (tt) {
-    return { id: "", goalId: "", title: tt.title, how: tt.how, points: tt.points, minutes: tt.minutes, verify: tt.verify, status: "todo", doneAt: null };
+    return { id: "", goalId: "", title: tt.title, how: tt.how, points: Math.round(tt.points * CFG.taskMultiplier), minutes: tt.minutes, verify: tt.verify, status: "todo", doneAt: null };
   });
   var st = d.states.find(function (x) { return x.k === w.state; });
   var stateLabel = st ? st.label : "";
-  var wish = w.wish || "探索自己的现状";
+  var wishList = (w.wishes && w.wishes.length) ? w.wishes : (w.wish ? [w.wish] : []);
+  var wish = wishList.join("、") || "探索自己的现状";
   var title, desc;
   if (d.explore) {
     title = "探索模式 · 先看见现状";
@@ -608,7 +842,7 @@ function buildPlan(w) {
     title = wish;
     desc = "自定义目标 · 期限 " + (w.deadline || "未定") + " · " + invest.label;
   } else {
-    title = d.label.split(" ")[0] + " · " + wish;
+    title = d.label.split(" ")[0] + " · " + (wishList.length > 1 ? "多项目标" : wish);
     desc = "起点：" + stateLabel + " → 目标：" + wish + " · " + invest.label + " · 期限 " + (w.deadline || "未定");
   }
   var summary = "<b>" + esc(title) + "</b><br>" + esc(desc) +
@@ -652,11 +886,20 @@ function renderAvatarEditor() {
   html += '<div class="field"><label>发型</label><div class="seg-row">' +
     HAIR_STYLES.map(function (h) { return '<button class="seg' + (a.hair === h.id ? " on" : "") + '" data-av-hair="' + h.id + '">' + h.label + '</button>'; }).join("") + '</div></div>';
 
+  html += '<div class="field"><label>刘海</label><div class="seg-row">' +
+    BANGS.map(function (b) { return '<button class="seg' + (a.bangs === b.id ? " on" : "") + '" data-av-bangs="' + b.id + '">' + b.label + '</button>'; }).join("") + '</div></div>';
+
   html += '<div class="field"><label>发色</label><div class="swatch-row">' +
     HAIR_COLORS.map(function (c) { return '<button class="swatch' + (a.hairColor === c.c ? " on" : "") + '" style="background:' + c.c + '" data-av-hc="' + c.c + '" title="' + c.label + '"></button>'; }).join("") + '</div></div>';
 
   html += '<div class="field"><label>肤色</label><div class="swatch-row">' +
     SKIN_TONES.map(function (c) { return '<button class="swatch' + (a.skin === c.c ? " on" : "") + '" style="background:' + c.c + '" data-av-skin="' + c.c + '" title="' + c.label + '"></button>'; }).join("") + '</div></div>';
+
+  html += '<div class="field"><label>瞳色</label><div class="swatch-row">' +
+    EYE_COLORS.map(function (c) { return '<button class="swatch' + (a.eyeColor === c.c ? " on" : "") + '" style="background:' + c.c + '" data-av-eye="' + c.c + '" title="' + c.label + '"></button>'; }).join("") + '</div></div>';
+
+  html += '<div class="field"><label>服装款式</label><div class="seg-row">' +
+    OUTFITS.map(function (o) { return '<button class="seg' + (a.outfit === o.id ? " on" : "") + '" data-av-outfit="' + o.id + '">' + o.label + '</button>'; }).join("") + '</div></div>';
 
   html += '<div class="field"><label>服装颜色</label><div class="swatch-row">' +
     CLOTH_COLORS.map(function (c) { return '<button class="swatch' + (a.cloth === c ? " on" : "") + '" style="background:' + c + '" data-av-cloth="' + c + '"></button>'; }).join("") + '</div></div>';
@@ -665,6 +908,9 @@ function renderAvatarEditor() {
 
   html += '<div class="field"><label>脸型 · 宽窄</label><div class="slider-row"><label>窄</label><input type="range" id="av-face" min="0" max="100" value="' + Math.round(a.faceW * 100) + '"><output>宽</output></div></div>';
   html += '<div class="field"><label>眼睛 · 大小</label><div class="slider-row"><label>小</label><input type="range" id="av-eye" min="0" max="100" value="' + Math.round(a.eyeW * 100) + '"><output>大</output></div></div>';
+  html += '<div class="field"><label>眉形 · 平直 ↔ 弯挑</label><div class="slider-row"><label>平</label><input type="range" id="av-brow" min="0" max="100" value="' + Math.round(a.browW * 100) + '"><output>挑</output></div></div>';
+  html += '<div class="field"><label>嘴型 · 抿嘴 ↔ 开心笑</label><div class="slider-row"><label>抿</label><input type="range" id="av-mouth" min="0" max="100" value="' + Math.round(a.mouthW * 100) + '"><output>笑</output></div></div>';
+  html += '<div class="field"><label>腮红浓淡</label><div class="slider-row"><label>无</label><input type="range" id="av-blush" min="0" max="100" value="' + Math.round(a.blush * 100) + '"><output>浓</output></div></div>';
   html += '<div class="field"><label>身高（cm）</label><div class="slider-row"><label>140</label><input type="range" id="av-height" min="140" max="190" value="' + a.height + '"><output id="av-height-o">' + a.height + '</output></div></div>';
   html += '<div class="field"><label>体重（kg）· 影响体型</label><div class="slider-row"><label>35</label><input type="range" id="av-weight" min="35" max="100" value="' + a.weight + '"><output id="av-weight-o">' + a.weight + '</output></div></div>';
 
@@ -676,12 +922,18 @@ function renderAvatarEditor() {
   body.innerHTML = html;
 
   body.querySelectorAll("[data-av-hair]").forEach(function (el) { el.onclick = function () { AV.hair = el.getAttribute("data-av-hair"); renderAvatarEditor(); }; });
+  body.querySelectorAll("[data-av-bangs]").forEach(function (el) { el.onclick = function () { AV.bangs = el.getAttribute("data-av-bangs"); renderAvatarEditor(); }; });
   body.querySelectorAll("[data-av-hc]").forEach(function (el) { el.onclick = function () { AV.hairColor = el.getAttribute("data-av-hc"); renderAvatarEditor(); }; });
   body.querySelectorAll("[data-av-skin]").forEach(function (el) { el.onclick = function () { AV.skin = el.getAttribute("data-av-skin"); renderAvatarEditor(); }; });
+  body.querySelectorAll("[data-av-eye]").forEach(function (el) { el.onclick = function () { AV.eyeColor = el.getAttribute("data-av-eye"); renderAvatarEditor(); }; });
+  body.querySelectorAll("[data-av-outfit]").forEach(function (el) { el.onclick = function () { AV.outfit = el.getAttribute("data-av-outfit"); renderAvatarEditor(); }; });
   body.querySelectorAll("[data-av-cloth]").forEach(function (el) { el.onclick = function () { AV.cloth = el.getAttribute("data-av-cloth"); renderAvatarEditor(); }; });
   $("av-glasses").onclick = function () { AV.glasses = !AV.glasses; renderAvatarEditor(); };
   $("av-face").oninput = function () { AV.faceW = this.value / 100; $("av-preview").innerHTML = userAvatarSVG(AV, 168); };
   $("av-eye").oninput = function () { AV.eyeW = this.value / 100; $("av-preview").innerHTML = userAvatarSVG(AV, 168); };
+  $("av-brow").oninput = function () { AV.browW = this.value / 100; $("av-preview").innerHTML = userAvatarSVG(AV, 168); };
+  $("av-mouth").oninput = function () { AV.mouthW = this.value / 100; $("av-preview").innerHTML = userAvatarSVG(AV, 168); };
+  $("av-blush").oninput = function () { AV.blush = this.value / 100; $("av-preview").innerHTML = userAvatarSVG(AV, 168); };
   $("av-height").oninput = function () { AV.height = +this.value; $("av-height-o").textContent = this.value; $("av-preview").innerHTML = userAvatarSVG(AV, 168); };
   $("av-weight").oninput = function () { AV.weight = +this.value; $("av-weight-o").textContent = this.value; $("av-preview").innerHTML = userAvatarSVG(AV, 168); };
   $("av-match").onclick = function () {
@@ -722,6 +974,7 @@ function renderAvatarEditor() {
     S.user.height = height; S.user.weight = weight;
     AV._desc = desc;
     save(); renderMine(); closeSheets();
+    uploadUserData();
     toast("形象已保存");
   };
 }
@@ -761,9 +1014,9 @@ function renderSettings() {
     '<div class="ex-row"><span>当前积分</span><b>' + S.sys.points + '</b></div>' +
     '<div class="ex-row"><span>成长值（累计）</span><b>' + S.sys.growth + '</b></div>' +
     '<div class="ex-row"><span>当前等级</span><b>LV.' + lv + '</b></div>' +
-    '<div class="ex-row"><span>距下一级</span><b>' + (100 - S.sys.growth % 100) + ' 成长值</b></div>' +
-    '<button class="primary-btn" style="width:100%;margin-top:12px" id="st-exchange"' + (S.sys.points >= 20 ? "" : " disabled") + '>兑换：20 积分 → 20 成长值</button>' +
-    '<p class="field-tip">兑换比例与升级数值均为演示参数，尚未最终确定。成长值累计将提升系统等级（辉光强度随等级增强）。</p></div>';
+    '<div class="ex-row"><span>距下一级</span><b>' + (levelPer() - S.sys.growth % levelPer()) + ' 成长值</b></div>' +
+    '<button class="primary-btn" style="width:100%;margin-top:12px" id="st-exchange"' + (S.sys.points >= CFG.exchange.points ? "" : " disabled") + '>兑换：' + CFG.exchange.points + ' 积分 → ' + CFG.exchange.growth + ' 成长值</button>' +
+    '<p class="field-tip">兑换比例与升级数值由系统管理员设定，可在后台调整。成长值累计将提升系统等级（辉光强度随等级增强）。</p></div>';
 
   html += '<button class="primary-btn" style="width:100%" id="st-save">保存设置</button>';
 
@@ -784,16 +1037,18 @@ function renderSettings() {
     el.onclick = function () { S.sys.form = el.getAttribute("data-form"); save(); renderSettings(); renderSystem(); };
   });
   $("st-exchange").onclick = function () {
-    if (S.sys.points < 20) return;
+    if (S.sys.points < CFG.exchange.points) return;
     var before = sysLevel();
-    S.sys.points -= 20; S.sys.growth += 20;
+    S.sys.points -= CFG.exchange.points; S.sys.growth += CFG.exchange.growth;
     save(); renderSettings(); renderAll();
-    if (sysLevel() > before) toast("兑换成功 · +20 成长值<br>系统升级 → LV." + sysLevel());
-    else toast("兑换成功 · +20 成长值");
+    uploadUserData();
+    if (sysLevel() > before) toast("兑换成功 · +" + CFG.exchange.growth + " 成长值<br>系统升级 → LV." + sysLevel());
+    else toast("兑换成功 · +" + CFG.exchange.growth + " 成长值");
   };
   $("st-save").onclick = function () {
     S.sys.name = ($("st-name").value.trim() || "星枢");
     save(); renderAll(); closeSheets();
+    uploadUserData();
     toast("设置已保存");
   };
 }
@@ -840,32 +1095,33 @@ function openRecords() {
 
 /* ============ 能力说明 ============ */
 var NOTES_HTML =
-  '<div class="note-sec"><h3 class="tag-ok">已实现（本原型 · 本地运行）</h3><ul>' +
+  '<div class="note-sec"><h3 class="tag-ok">已实现（本原型）</h3><ul>' +
   "<li>系统 / 任务 / 我的 三主页面，手机优先 UI</li>" +
-  "<li>6 套配色主题一键切换：冰蓝科技 / 极光紫 / 奶桃可爱 / 古风黛青 / 撞色霓虹 / 黑金时尚（设置内保存偏好）</li>" +
-  "<li>语音输入（浏览器原生识别）：说出愿望、语音描述形象，自动转文字；需 Edge / Chrome 等支持的浏览器</li>" +
-  "<li>选项式愿望澄清向导（现状 / 目标 / 投入 / 期限）</li>" +
+  "<li>12 套配色主题一键切换（设置内保存偏好）</li>" +
+  "<li>语音输入（浏览器原生识别）：说出愿望、语音描述形象；说一段话会自动拆分多个愿望并逐一建目标</li>" +
+  "<li>选项式愿望澄清向导：目标可多选，现状 / 投入 / 期限选项式澄清</li>" +
   "<li>目标创建、任务筛选、任务详情、自主打卡</li>" +
-  "<li>积分发放（一次性）、积分兑换成长值、等级显示</li>" +
-  "<li>8 种系统形态选择与切换（核芯 / 星轨 / 晶簇 / 流光 / 机灵 / 云核 / 脉冲 / 镜像）</li>" +
-  "<li>用户彩绘捏脸：发型 / 发色 / 肤色 / 服装 / 眼镜 / 脸宽 / 眼型 / 身高体重，实时预览</li>" +
+  "<li>积分发放（一次性）、积分兑换成长值、等级显示（数值由管理员后台配置）</li>" +
+  "<li>8 种系统形态选择与切换</li>" +
+  "<li>用户彩绘捏脸：7 种发型 × 3 种刘海 × 8 发色 × 4 肤色 × 6 瞳色 × 3 服装款式 × 10 服装色，加眼镜、脸宽、眼大小、眉形、嘴型、腮红、身高体重共 15+ 项可调，实时预览</li>" +
   "<li>一句话描述（打字或语音）匹配形象初稿（关键词规则）</li>" +
-  "<li>localStorage 本机保存、JSON 数据导出、首次初始化引导</li></ul></div>" +
+  "<li>localStorage 本机保存、JSON 数据导出、首次初始化引导（方向可多选）</li>" +
+  "<li>匿名数据摘要上报与管理员后台（config.json 配置 + user-data 查看）</li></ul></div>" +
   '<div class="note-sec"><h3 class="tag-demo">演示（规则模拟，不是真实 AI）</h3><ul>' +
   "<li>目标拆解与任务生成：关键词 + 模板规则，非个性化计划</li>" +
+  "<li>语音拆分愿望：按标点与连接词的规则切分，不是 AI 理解</li>" +
   "<li>语音→形象提取：识别文字后按关键词规则匹配，不是 AI 理解你的话</li>" +
   "<li>任务验证：点击提交即通过并发放积分，无真实审核</li>" +
   "<li>照片：仅记录文件名，不上传、不存储、不识别</li>" +
-  "<li>性格适应：仅为开关与文案占位，不会真正学习你的偏好</li>" +
-  "<li>积分 20 → 成长值 20、每 100 成长值升 1 级：演示参数，非最终规则</li></ul></div>" +
+  "<li>性格适应：仅为开关与文案占位，不会真正学习你的偏好</li></ul></div>" +
   '<div class="note-sec"><h3 class="tag-todo">未实现（需要后端或 AI 服务）</h3><ul>' +
   "<li>真正的对话理解与模糊愿望智能澄清</li>" +
   "<li>结合执行反馈的动态计划调整与复盘</li>" +
   "<li>照片识别现状、任务照片审核</li>" +
-  "<li>账号登录、云端数据库、多设备同步</li>" +
-  "<li>可安装应用（原生 / PWA 选型待定）</li>" +
+  "<li>账号注册登录（当前为匿名 ID，无密码）</li>" +
+  "<li>可安装应用（原生选型待定）</li>" +
   "<li>AI 自由生成用户肖像与精细捏脸、明星形象授权等</li></ul></div>" +
-  '<div class="wz-note">当前所有数据仅存于本浏览器 localStorage：换设备 / 换浏览器 / 清理存储都会丢失记录。请用「导出数据」做备份。</div>';
+  '<div class="wz-note">关于数据：你的任务与形象保存在本机浏览器；同时系统会上报一份匿名摘要（昵称、系统设置、积分等级、目标标题等，不含照片与任务记录正文）到云端，供管理员了解整体使用情况。不需要云同步时可在后台关闭上报。</div>';
 
 /* ============ 数据导出 / 重置 ============ */
 function exportData() {
@@ -879,7 +1135,7 @@ function exportData() {
 }
 
 /* ============ 初始化引导 ============ */
-var OB = { step: 0, data: { avatar: defaultAvatar() } };
+var OB = { step: 0, data: { avatar: defaultAvatar(), dirs: [] } };
 function renderOb() {
   var inner = $("ob-inner");
   var d = OB.data;
@@ -935,9 +1191,10 @@ function renderOb() {
       '<div class="ob-actions"><button class="ghost-btn ob-back">上一步</button><button class="primary-btn" id="ob-next">下一步</button></div>' + dotsHtml;
   }
   if (OB.step === 6) {
-    html = '<div class="ob-head">最后 · 你现在有想改变的事吗？</div><div class="ob-tip">没有也没关系，系统会先带你记录生活、看清现状。</div>' +
+    if (!d.dirs) d.dirs = [];
+    html = '<div class="ob-head">最后 · 你现在有想改变的事吗？（可多选）</div><div class="ob-tip">选好方向后系统直接生成起步任务；选多个就一次性全建好。没有也没关系。</div>' +
       '<div class="dir-grid">' + DIRS.map(function (dd) {
-        return '<button class="dir-cell' + (d.dir === dd.id ? " on" : "") + '" data-ob-dir="' + dd.id + '"><b>' + dd.label + '</b><i>' + dd.hint + '</i></button>';
+        return '<button class="dir-cell' + (d.dirs.indexOf(dd.id) >= 0 ? " on" : "") + '" data-ob-dir="' + dd.id + '"><b>' + dd.label + '</b><i>' + dd.hint + '</i></button>';
       }).join("") + '</div>' +
       '<div class="ob-actions" style="margin-top:20px"><button class="ghost-btn ob-back">上一步</button><button class="primary-btn" id="ob-finish">进入我的系统</button></div>' + dotsHtml;
   }
@@ -960,7 +1217,13 @@ function renderOb() {
   inner.querySelectorAll("[data-ob-hair]").forEach(function (el) { el.onclick = function () { d.avatar.hair = el.getAttribute("data-ob-hair"); renderOb(); }; });
   inner.querySelectorAll("[data-ob-hc]").forEach(function (el) { el.onclick = function () { d.avatar.hairColor = el.getAttribute("data-ob-hc"); renderOb(); }; });
   inner.querySelectorAll("[data-ob-skin]").forEach(function (el) { el.onclick = function () { d.avatar.skin = el.getAttribute("data-ob-skin"); renderOb(); }; });
-  inner.querySelectorAll("[data-ob-dir]").forEach(function (el) { el.onclick = function () { d.dir = el.getAttribute("data-ob-dir"); renderOb(); }; });
+  inner.querySelectorAll("[data-ob-dir]").forEach(function (el) { el.onclick = function () {
+    var did = el.getAttribute("data-ob-dir");
+    if (!d.dirs) d.dirs = [];
+    var ix = d.dirs.indexOf(did);
+    if (ix >= 0) d.dirs.splice(ix, 1); else d.dirs.push(did);
+    renderOb();
+  }; });
   var finish = inner.querySelector("#ob-finish");
   if (finish) finish.onclick = function () { finishOb(false); };
 }
@@ -977,8 +1240,16 @@ function finishOb(skipped) {
   $("app").classList.remove("hidden");
   renderAll();
   toast("初始化完成 · 欢迎使用「我的系统」");
-  if (!skipped && d.dir) {
-    setTimeout(function () { startWizard("", d.dir); }, 400);
+  uploadUserData();
+  if (!skipped && d.dirs && d.dirs.length) {
+    if (d.dirs.length === 1) {
+      setTimeout(function () { startWizard("", d.dirs[0]); }, 400);
+    } else {
+      setTimeout(function () {
+        var n = createGoalsBatch(d.dirs.map(function (did) { return { text: dirOf(did).label, dir: did, on: true }; }));
+        toast(n ? "已按你的选择创建 " + n + " 个目标" : "未创建目标");
+      }, 400);
+    }
   }
 }
 
@@ -1006,6 +1277,8 @@ function renderAll() {
   if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
     navigator.serviceWorker.register("sw.js").catch(function () { });
   }
+  /* 拉取后台配置（兑换比例 / 升级阈值 / 公告 / 积分倍率），成功后刷新界面 */
+  loadConfig(function () { if (S.onboarded) renderAll(); });
   /* 应用已保存的色彩主题 */
   applyTheme(S.ui && S.ui.theme);
   /* 导航 */
@@ -1024,7 +1297,7 @@ function renderAll() {
   /* 入口按钮 */
   $("btn-wish").onclick = function () {
     var v = $("wish-input").value.trim();
-    startWizard(v);
+    handleWishText(v);
   };
   /* 语音输入愿望：浏览器原生识别（不支持的浏览器自动隐藏按钮） */
   if (voiceSupported() && $("mic-wish")) {
@@ -1032,13 +1305,22 @@ function renderAll() {
     $("mic-wish").onclick = function () {
       var btn = $("mic-wish");
       var cfg = { btn: btn };
-      cfg.onInterim = function (full) { $("wish-input").value = full.slice(0, 40); };
-      cfg.onText = function (full) { $("wish-input").value = full.slice(0, 40); };
-      if (!toggleVoiceInput(cfg)) toast("已停止录音，点「生成计划」继续");
+      cfg.onInterim = function (full) { $("wish-input").value = full.slice(0, 60); };
+      cfg.onText = function (full) {
+        $("wish-input").value = full.slice(0, 60);
+        /* 语音说完自动分析：多个愿望直接进入拆分面板 */
+        var items = splitWishes(full);
+        if (items.length >= 2) {
+          stopVoiceInput();
+          $("wish-input").value = "";
+          openSplitSheet(items, full.slice(0, 60));
+        }
+      };
+      if (!toggleVoiceInput(cfg)) toast("已停止录音");
     };
   }
   $("wish-input").addEventListener("keydown", function (e) {
-    if (e.key === "Enter") startWizard(this.value.trim());
+    if (e.key === "Enter") handleWishText(this.value.trim());
   });
   $("btn-explore").onclick = function () { startWizard("", "none"); };
   $("btn-new-goal").onclick = function () { startWizard(""); };
