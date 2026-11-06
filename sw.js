@@ -1,5 +1,5 @@
 /* 简单离线缓存 Service Worker：缓存外壳资源，离线也能打开（业务数据仍存 localStorage） */
-var CACHE = "mysystem-v2-themes-voice";
+var CACHE = "mysystem-v3-admin";
 var ASSETS = [
   "./", "./index.html", "./style.css", "./app.js", "./appearance.js",
   "./manifest.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"
